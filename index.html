@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hi-Lo · World Cup Stat Ticker</title>
+<meta name="description" content="Guess if the next World Cup match stat is higher or lower. Live, streak-based, powered by TxLINE.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Teko:wght@500;600;700&family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0B1F17;
+    --panel:#0F2A1F;
+    --panel-2:#13331F87;
+    --pitch:#163C2C;
+    --chalk:#F3F0E6;
+    --chalk-dim:#C9C6BA;
+    --gold:#FFC53D;
+    --gold-dim:#8a6a1f;
+    --up:#5FE0A0;
+    --down:#FF5D5D;
+    --line: rgba(243,240,230,0.10);
+    --line-strong: rgba(243,240,230,0.22);
+    --shadow: 0 20px 60px rgba(0,0,0,0.45);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    min-height:100dvh;
+    background:
+      radial-gradient(ellipse 90% 50% at 50% -10%, rgba(255,197,61,0.14), transparent 60%),
+      radial-gradient(ellipse 70% 40% at 85% 8%, rgba(95,224,160,0.08), transparent 60%),
+      linear-gradient(180deg, var(--ink) 0%, #081712 60%, #050f0b 100%);
+    color:var(--chalk);
+    font-family:'Inter',system-ui,sans-serif;
+    display:flex;
+    justify-content:center;
+    padding: max(14px, env(safe-area-inset-top)) 14px max(24px, env(safe-area-inset-bottom));
+    overflow-x:hidden;
+  }
+  /* faint turf line texture */
+  body::before{
+    content:"";
+    position:fixed; inset:0;
+    background-image: repeating-linear-gradient(180deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 64px);
+    pointer-events:none;
+  }
+  .app{ width:100%; max-width:440px; display:flex; flex-direction:column; gap:14px; position:relative; z-index:1;}
+
+  /* ---------- Header ---------- */
+  .header{ display:flex; align-items:center; justify-content:space-between; padding:2px 2px 0;}
+  .brand{ display:flex; flex-direction:column; line-height:1;}
+  .brand .eyebrow{ font-family:'Space Mono',monospace; font-size:10px; letter-spacing:.18em; color:var(--gold); text-transform:uppercase;}
+  .brand h1{ margin:2px 0 0; font-family:'Teko',sans-serif; font-weight:600; font-size:26px; letter-spacing:.01em; text-transform:uppercase;}
+  .header-right{ display:flex; align-items:center; gap:8px;}
+  .live-pill{
+    display:flex; align-items:center; gap:6px;
+    font-family:'Space Mono',monospace; font-size:10px; letter-spacing:.08em;
+    padding:6px 9px; border-radius:100px;
+    border:1px solid var(--line-strong); background:rgba(255,255,255,0.03);
+    color:var(--chalk-dim); text-transform:uppercase;
+  }
+  .live-pill .dot{ width:6px;height:6px;border-radius:50%; background:var(--chalk-dim); }
+  .live-pill.on .dot{ background:var(--up); box-shadow:0 0 8px var(--up); animation:pulse 1.6s ease-in-out infinite;}
+  .live-pill.on{ color:var(--up); border-color:rgba(95,224,160,0.3);}
+  @keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  .wallet-btn{
+    font-family:'Space Mono',monospace; font-size:10.5px; letter-spacing:.03em;
+    padding:7px 11px; border-radius:100px; border:1px solid var(--line-strong);
+    background:rgba(255,255,255,0.03); color:var(--chalk); cursor:pointer;
+    display:flex; align-items:center; gap:6px; transition:.15s;
+  }
+  .wallet-btn:active{ transform:scale(.96); }
+  .wallet-btn.connected{ border-color:rgba(255,197,61,0.4); color:var(--gold); background:rgba(255,197,61,0.06);}
+  .wallet-btn svg{ width:12px; height:12px; }
+
+  /* ---------- Match card ---------- */
+  .card{
+    background: linear-gradient(180deg, var(--panel), #0B2418);
+    border:1px solid var(--line); border-radius:20px;
+    box-shadow: var(--shadow);
+    padding:18px 18px 20px;
+    position:relative; overflow:hidden;
+  }
+  .card::after{ /* floodlight glow sweep */
+    content:""; position:absolute; top:-60%; left:-20%; width:140%; height:160%;
+    background: conic-gradient(from 200deg at 50% 0%, transparent 0deg, rgba(255,197,61,0.05) 40deg, transparent 90deg);
+    pointer-events:none;
+  }
+  .matchup{ display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:2px;}
+  .team{ display:flex; flex-direction:column; align-items:center; gap:4px; width:84px;}
+  .team .swatch{ width:26px; height:26px; border-radius:7px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.15);}
+  .team.home .swatch{ background: linear-gradient(145deg, #FFC53D, #C98A1E);}
+  .team.away .swatch{ background: linear-gradient(145deg, #5FE0A0, #1E8A5F);}
+  .team span{ font-family:'Space Mono',monospace; font-size:10.5px; letter-spacing:.04em; color:var(--chalk-dim); text-transform:uppercase; text-align:center;}
+  .vs{ font-family:'Teko',sans-serif; font-size:15px; color:var(--chalk-dim); opacity:.6; padding-bottom:14px;}
+  .match-meta{ text-align:center; font-family:'Space Mono',monospace; font-size:10px; color:var(--chalk-dim); letter-spacing:.08em; margin:2px 0 14px; text-transform:uppercase;}
+  .match-meta b{ color:var(--gold); font-weight:400;}
+
+  .stat-label{ text-align:center; font-family:'Space Mono',monospace; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--chalk-dim); margin-bottom:10px;}
+  .stat-label b{ color:var(--chalk); font-weight:700;}
+
+  /* split-flap */
+  .flap-row{ display:flex; justify-content:center; gap:8px; margin-bottom:8px; perspective:600px;}
+  .flap{
+    position:relative; width:64px; height:78px; border-radius:10px;
+    background: linear-gradient(180deg,#1a3f2c,#0c2418);
+    border:1px solid var(--line-strong);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -8px 14px rgba(0,0,0,0.35);
+  }
+  .flap .digit{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-family:'Teko',sans-serif; font-weight:600; font-size:44px; color:var(--chalk);
+    transition: color .25s, text-shadow .25s;
+  }
+  .flap.flash-up .digit{ color:var(--up); text-shadow:0 0 18px rgba(95,224,160,0.55);}
+  .flap.flash-down .digit{ color:var(--down); text-shadow:0 0 18px rgba(255,93,93,0.5);}
+  .flap::before{ content:""; position:absolute; left:0; right:0; top:50%; height:1px; background:rgba(0,0,0,0.45); z-index:2;}
+  .flap-card{
+    position:absolute; inset:0; border-radius:10px; transform-style:preserve-3d;
+    transition: transform .5s cubic-bezier(.6,0,.3,1);
+  }
+  .flap.flipping .flap-card{ transform: rotateX(-180deg); }
+
+  .last-update{ text-align:center; font-family:'Space Mono',monospace; font-size:10px; color:var(--chalk-dim); letter-spacing:.05em; margin-top:10px;}
+  .last-update span{ color:var(--gold);}
+
+  /* ---------- Prompt + paddles ---------- */
+  .prompt{ text-align:center; margin:18px 0 12px;}
+  .prompt .q{ font-family:'Teko',sans-serif; font-size:22px; letter-spacing:.01em; text-transform:uppercase;}
+  .prompt .q em{ font-style:normal; color:var(--gold);}
+
+  .paddles{ display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .paddle{
+    position:relative; border:none; border-radius:16px; padding:20px 10px 16px;
+    font-family:'Teko',sans-serif; font-size:28px; letter-spacing:.03em; text-transform:uppercase;
+    color:var(--ink); cursor:pointer; overflow:hidden;
+    display:flex; flex-direction:column; align-items:center; gap:2px;
+    transition: transform .12s ease;
+  }
+  .paddle:active{ transform:scale(.96);}
+  .paddle .arrow{ font-size:18px; line-height:1;}
+  .paddle.hi{ background:linear-gradient(180deg,#7CF0BC,var(--up)); box-shadow:0 10px 26px rgba(95,224,160,0.25);}
+  .paddle.lo{ background:linear-gradient(180deg,#FF8F8F,var(--down)); box-shadow:0 10px 26px rgba(255,93,93,0.2);}
+  .paddle:disabled{ opacity:.45; pointer-events:none;}
+  .paddle small{ font-family:'Space Mono',monospace; font-size:9.5px; letter-spacing:.06em; font-weight:700; opacity:.75; text-transform:uppercase;}
+
+  .result-banner{
+    text-align:center; font-family:'Space Mono',monospace; font-size:12px; letter-spacing:.08em;
+    text-transform:uppercase; margin-top:12px; min-height:16px; transition:opacity .2s;
+  }
+  .result-banner.up{ color:var(--up);}
+  .result-banner.down{ color:var(--down);}
+
+  /* ---------- Streak tally ---------- */
+  .streak-row{
+    display:flex; align-items:center; justify-content:space-between;
+    background:rgba(255,255,255,0.025); border:1px solid var(--line); border-radius:16px;
+    padding:14px 16px;
+  }
+  .streak-left{ display:flex; flex-direction:column; gap:6px;}
+  .streak-left .lbl{ font-family:'Space Mono',monospace; font-size:9.5px; letter-spacing:.12em; color:var(--chalk-dim); text-transform:uppercase;}
+  .tally{ display:flex; gap:5px;}
+  .tally .pip{ width:9px; height:9px; border-radius:50%; background:rgba(255,255,255,0.12); transition:.2s;}
+  .tally .pip.on{ background:var(--gold); box-shadow:0 0 8px rgba(255,197,61,0.6);}
+  .streak-num{ font-family:'Teko',sans-serif; font-size:40px; line-height:.8; color:var(--gold);}
+  .streak-right{ text-align:right; display:flex; flex-direction:column; gap:2px;}
+  .streak-right .best{ font-family:'Space Mono',monospace; font-size:10px; color:var(--chalk-dim);}
+  .streak-right .best b{ color:var(--chalk);}
+
+  /* ---------- Ticker ---------- */
+  .ticker-wrap{
+    border:1px solid var(--line-strong); border-radius:12px; overflow:hidden;
+    background: linear-gradient(180deg,#08150F,#0a1c13);
+    position:relative;
+  }
+  .ticker-wrap::before, .ticker-wrap::after{
+    content:""; position:absolute; top:0; bottom:0; width:24px; z-index:2; pointer-events:none;
+  }
+  .ticker-wrap::before{ left:0; background:linear-gradient(90deg,#08150F,transparent);}
+  .ticker-wrap::after{ right:0; background:linear-gradient(270deg,#08150F,transparent);}
+  .ticker-label{
+    position:absolute; left:8px; top:50%; transform:translateY(-50%);
+    background:var(--gold); color:var(--ink); font-family:'Space Mono',monospace; font-weight:700;
+    font-size:8.5px; letter-spacing:.06em; padding:3px 6px; border-radius:4px; z-index:3;
+  }
+  .ticker-track{ display:flex; white-space:nowrap; padding:10px 0 10px 84px; animation: scroll 22s linear infinite;}
+  .ticker-track span{ font-family:'Space Mono',monospace; font-size:11px; color:var(--chalk-dim); padding-right:36px;}
+  .ticker-track span b{ color:var(--chalk); font-weight:700;}
+  .ticker-track span.up-ev b{ color:var(--up);}
+  .ticker-track span.down-ev b{ color:var(--down);}
+  @keyframes scroll{ from{ transform:translateX(0);} to{ transform:translateX(-50%);} }
+
+  /* ---------- Footer ---------- */
+  .footer{ text-align:center; padding:4px 10px 0;}
+  .footer p{ margin:0; font-family:'Space Mono',monospace; font-size:9.5px; color:rgba(243,240,230,0.35); letter-spacing:.04em; line-height:1.6;}
+  .footer a{ color: var(--gold); text-decoration:none; }
+  .mode-badge{ display:inline-block; margin-top:6px; padding:3px 8px; border-radius:100px; font-family:'Space Mono',monospace; font-size:8.5px; letter-spacing:.08em; border:1px solid var(--line-strong); color:var(--chalk-dim); text-transform:uppercase;}
+
+  .sr-only{ position:absolute; width:1px;height:1px; overflow:hidden; clip:rect(0,0,0,0);}
+
+  @media (prefers-reduced-motion: reduce){
+    .live-pill.on .dot{ animation:none;}
+    .ticker-track{ animation:none;}
+    .flap-card{ transition:none;}
+  }
+
+  :focus-visible{ outline:2px solid var(--gold); outline-offset:2px; }
+</style>
+</head>
+<body>
+<div class="app" id="app">
+
+  <div class="header">
+    <div class="brand">
+      <span class="eyebrow">TxLINE · Solana</span>
+      <h1>World Cup Hi-Lo</h1>
+    </div>
+    <div class="header-right">
+      <div class="live-pill" id="livePill"><span class="dot"></span><span id="livePillText">Demo feed</span></div>
+      <button class="wallet-btn" id="walletBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M3 7a2 2 0 012-2h13a2 2 0 012 2v1H5a2 2 0 00-2 2v8a2 2 0 002 2h14a2 2 0 002-2v-6a2 2 0 00-2-2H8" stroke="currentColor" stroke-width="1.6"/><circle cx="17" cy="13" r="1.3" fill="currentColor"/></svg>
+        <span id="walletLabel">Connect</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="matchup">
+      <div class="team home"><div class="swatch"></div><span id="teamHome">Team Amber</span></div>
+      <div class="vs">VS</div>
+      <div class="team away"><div class="swatch"></div><span id="teamAway">Team Turf</span></div>
+    </div>
+    <div class="match-meta">Minute <b id="minuteNow">12'</b> &nbsp;·&nbsp; Sample fixture &nbsp;·&nbsp; Group C</div>
+
+    <div class="stat-label">Next stat update: <b id="statName">Total Shots</b></div>
+
+    <div class="flap-row" id="flapRow" aria-live="polite"></div>
+
+    <div class="last-update">current value <span id="lastValueLabel">—</span></div>
+
+    <div class="prompt">
+      <div class="q">Will it go <em>higher</em> or <em>lower</em>?</div>
+    </div>
+
+    <div class="paddles">
+      <button class="paddle hi" id="btnHi" type="button"><span class="arrow">▲</span>HI<small>higher</small></button>
+      <button class="paddle lo" id="btnLo" type="button"><span class="arrow">▼</span>LO<small>lower</small></button>
+    </div>
+
+    <div class="result-banner" id="resultBanner"></div>
+  </div>
+
+  <div class="streak-row">
+    <div class="streak-left">
+      <span class="lbl">Current streak</span>
+      <div class="tally" id="tally"></div>
+    </div>
+    <div class="streak-num" id="streakNum">0</div>
+    <div class="streak-right">
+      <span class="best">Best <b id="bestStreak">0</b></span>
+      <span class="best">Today <b id="todayCount">0</b> played</span>
+    </div>
+  </div>
+
+  <div class="ticker-wrap">
+    <span class="ticker-label">Live</span>
+    <div class="ticker-track" id="tickerTrack"></div>
+  </div>
+
+  <div class="footer">
+    <p>Built on TxLINE match data, verified on Solana. Guesses are casual fan predictions, not wagers — no funds are staked or exchanged.<br>
+    <a href="https://txline.txodds.com/documentation/quickstart" target="_blank" rel="noopener">API docs</a> · World Cup Hackathon 2026, Consumer &amp; Fan Experiences</p>
+    <span class="mode-badge" id="modeBadge">Demo data mode</span>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ============================================================
+     DATA LAYER
+     One function is the seam between "demo" and "live" data:
+     getNextTick(). Everything above it (rendering, game logic,
+     streaks) is identical in both modes.
+
+     LIVE MODE: calls our own /api/stats serverless endpoint,
+     which — once TXLINE_JWT / TXLINE_API_TOKEN are set as Vercel
+     env vars (see README "Go live" section) — proxies real TxLINE
+     match data server-side, so no secrets ever reach the browser.
+
+     DEMO MODE (default, used until credentials are activated):
+     a seeded, self-contained generator that produces a realistic,
+     fully replayable stat stream so the product works end-to-end
+     right now, with zero setup.
+  ============================================================ */
+
+  const STATS = [
+    { key:'shots', label:'Total Shots', max: 24, step:[0,1,1,2] },
+    { key:'corners', label:'Corners Won', max: 12, step:[0,0,1,1] },
+    { key:'sot', label:'Shots on Target', max: 11, step:[0,0,1] },
+    { key:'possession', label:'Home Possession %', max: 68, min: 32, step:[-3,-1,0,1,3] },
+  ];
+
+  let demoState = null;
+  function resetDemo(){
+    demoState = { minute: 3, values: { shots:0, corners:0, sot:0, possession:50 }, statIdx: 0 };
+  }
+  resetDemo();
+
+  function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+  // Advances the demo match by one "TxLINE update" and returns the new tick.
+  function demoNextTick(){
+    const stat = STATS[demoState.statIdx];
+    demoState.statIdx = (demoState.statIdx + 1) % STATS.length;
+    demoState.minute = Math.min(90, demoState.minute + Math.floor(Math.random()*4)+1);
+
+    let v = demoState.values[stat.key];
+    const delta = pick(stat.step);
+    v = v + delta;
+    if (stat.max !== undefined) v = Math.min(stat.max, v);
+    if (stat.min !== undefined) v = Math.max(stat.min, v);
+    else v = Math.max(0, v);
+    demoState.values[stat.key] = v;
+
+    return {
+      minute: demoState.minute,
+      statKey: stat.key,
+      statLabel: stat.label,
+      value: v,
+      isPercent: stat.key === 'possession'
+    };
+  }
+
+  let liveMode = false; // flips to true automatically if /api/stats reports live credentials configured
+
+  async function getNextTick(previous){
+    if (liveMode){
+      try{
+        const res = await fetch('/api/stats?after=' + (previous ? previous.minute : 0));
+        if (!res.ok) throw new Error('bad status');
+        const data = await res.json();
+        if (data.mode === 'live') return data.tick;
+        // server fell back to demo (no creds yet) — stay in sync with UI state
+        liveMode = false;
+        setLiveIndicator(false);
+      }catch(e){ /* network hiccup: fall through to demo so the game never stalls */ }
+    }
+    return demoNextTick();
+  }
+
+  // Probe once on load to see if live credentials are configured server-side.
+  async function probeLive(){
+    try{
+      const res = await fetch('/api/stats?probe=1');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.mode === 'live'){ liveMode = true; setLiveIndicator(true); }
+    }catch(e){ /* stays in demo mode, which is fully functional */ }
+  }
+
+  function setLiveIndicator(isLive){
+    const pill = document.getElementById('livePill');
+    const text = document.getElementById('livePillText');
+    const badge = document.getElementById('modeBadge');
+    pill.classList.toggle('on', isLive);
+    text.textContent = isLive ? 'Live · TxLINE' : 'Demo feed';
+    badge.textContent = isLive ? 'Live TxLINE data' : 'Demo data mode';
+  }
+
+  /* ============================================================
+     GAME STATE
+  ============================================================ */
+  const state = {
+    current: null,      // the tick currently shown
+    pending: false,
+    streak: 0,
+    best: Number(localStorage.getItem('wc_hilo_best') || 0),
+    todayCount: Number(localStorage.getItem('wc_hilo_today') || 0),
+    ticker: []
+  };
+
+  const els = {
+    flapRow: document.getElementById('flapRow'),
+    lastValueLabel: document.getElementById('lastValueLabel'),
+    statName: document.getElementById('statName'),
+    minuteNow: document.getElementById('minuteNow'),
+    btnHi: document.getElementById('btnHi'),
+    btnLo: document.getElementById('btnLo'),
+    resultBanner: document.getElementById('resultBanner'),
+    streakNum: document.getElementById('streakNum'),
+    bestStreak: document.getElementById('bestStreak'),
+    todayCount: document.getElementById('todayCount'),
+    tally: document.getElementById('tally'),
+    tickerTrack: document.getElementById('tickerTrack'),
+  };
+
+  function renderFlaps(valueStr){
+    els.flapRow.innerHTML = '';
+    const chars = valueStr.split('');
+    chars.forEach(ch=>{
+      const flap = document.createElement('div');
+      flap.className = 'flap';
+      flap.innerHTML = '<div class="flap-card"><div class="digit">'+ch+'</div></div>';
+      els.flapRow.appendChild(flap);
+    });
+  }
+
+  function flashFlaps(dir){
+    document.querySelectorAll('.flap').forEach(f=>{
+      f.classList.add(dir === 'up' ? 'flash-up' : 'flash-down');
+      f.classList.add('flipping');
+      setTimeout(()=>f.classList.remove('flipping'), 520);
+    });
+    setTimeout(()=>{
+      document.querySelectorAll('.flap').forEach(f=>f.classList.remove('flash-up','flash-down'));
+    }, 900);
+  }
+
+  function updateTally(){
+    els.tally.innerHTML = '';
+    const shown = Math.min(state.streak, 5);
+    for (let i=0;i<5;i++){
+      const pip = document.createElement('div');
+      pip.className = 'pip' + (i < shown ? ' on' : '');
+      els.tally.appendChild(pip);
+    }
+    els.streakNum.textContent = state.streak;
+    els.bestStreak.textContent = state.best;
+    els.todayCount.textContent = state.todayCount;
+  }
+
+  function pushTicker(text, dir){
+    state.ticker.unshift({text, dir});
+    state.ticker = state.ticker.slice(0, 14);
+    const items = state.ticker.map(t=>
+      '<span class="'+(t.dir==='up'?'up-ev':t.dir==='down'?'down-ev':'')+'">'+t.text+'</span>'
+    ).join('');
+    // duplicate content back-to-back for a seamless CSS marquee loop
+    els.tickerTrack.innerHTML = items + items;
+  }
+
+  function formatValue(tick){
+    return tick.isPercent ? String(tick.value) + '%' : String(tick.value);
+  }
+
+  async function loadTick(seed){
+    const tick = seed || await getNextTick(state.current);
+    state.current = tick;
+    els.statName.textContent = tick.statLabel;
+    els.minuteNow.textContent = tick.minute + "'";
+    els.lastValueLabel.textContent = formatValue(tick);
+    renderFlaps(formatValue(tick));
+  }
+
+  async function handleGuess(direction){
+    if (state.pending || !state.current) return;
+    state.pending = true;
+    els.btnHi.disabled = true; els.btnLo.disabled = true;
+
+    const before = state.current;
+    const next = await getNextTick(before);
+
+    const correct =
+      (direction === 'hi' && next.value >= before.value) ||
+      (direction === 'lo' && next.value <= before.value);
+    const actualDir = next.value === before.value ? 'flat' : (next.value > before.value ? 'up' : 'down');
+
+    flashFlaps(actualDir === 'down' ? 'down' : 'up');
+
+    els.resultBanner.className = 'result-banner ' + (actualDir === 'down' ? 'down' : 'up');
+    els.resultBanner.textContent = correct
+      ? '✓ correct — ' + next.statLabel + ' moved to ' + formatValue(next)
+      : '✗ ' + next.statLabel + ' moved to ' + formatValue(next);
+
+    pushTicker(
+      (next.minute) + "' " + next.statLabel + ' → <b>' + formatValue(next) + '</b> (' + (correct ? 'streak kept' : 'streak reset') + ')',
+      actualDir
+    );
+
+    if (correct){
+      state.streak += 1;
+      if (state.streak > state.best){
+        state.best = state.streak;
+        localStorage.setItem('wc_hilo_best', String(state.best));
+      }
+    } else {
+      state.streak = 0;
+    }
+    state.todayCount += 1;
+    localStorage.setItem('wc_hilo_today', String(state.todayCount));
+    updateTally();
+
+    setTimeout(async ()=>{
+      await loadTick(next);
+      els.resultBanner.textContent = '';
+      els.btnHi.disabled = false; els.btnLo.disabled = false;
+      state.pending = false;
+    }, 900);
+  }
+
+  els.btnHi.addEventListener('click', ()=>handleGuess('hi'));
+  els.btnLo.addEventListener('click', ()=>handleGuess('lo'));
+
+  /* ============================================================
+     SOLANA WALLET (Phantom) — connect + sign, no npm packages.
+     Used to attach a verifiable identity to streaks/leaderboard
+     entries. Core gameplay works fully without connecting.
+  ============================================================ */
+  const walletBtn = document.getElementById('walletBtn');
+  const walletLabel = document.getElementById('walletLabel');
+  let walletPubkey = null;
+
+  async function connectWallet(){
+    const provider = window.solana;
+    if (!provider || !provider.isPhantom){
+      walletLabel.textContent = 'Get Phantom';
+      window.open('https://phantom.app/', '_blank');
+      return;
+    }
+    try{
+      const resp = await provider.connect();
+      walletPubkey = resp.publicKey.toString();
+      const short = walletPubkey.slice(0,4) + '…' + walletPubkey.slice(-4);
+
+      // Sign a lightweight join receipt — proves control of the wallet
+      // without requesting any funds or approvals.
+      try{
+        const msg = new TextEncoder().encode('World Cup Hi-Lo · join receipt · ' + new Date().toISOString().slice(0,10));
+        if (provider.signMessage) await provider.signMessage(msg, 'utf8');
+      }catch(signErr){ /* non-fatal: user can still play if they decline the signature */ }
+
+      walletBtn.classList.add('connected');
+      walletLabel.textContent = short;
+    }catch(e){
+      walletLabel.textContent = 'Connect';
+    }
+  }
+  walletBtn.addEventListener('click', connectWallet);
+
+  /* ============================================================
+     BOOT
+  ============================================================ */
+  updateTally();
+  probeLive().finally(()=>{ loadTick(); });
+
+})();
+</script>
+</body>
+</html>

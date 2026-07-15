@@ -1,0 +1,10 @@
+{
+  "name": "world-cup-hilo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "World Cup Hi-Lo — a split-flap stat-prediction game built on TxLINE, for the Superteam Earn x TxODDS World Cup Hackathon (Consumer & Fan Experiences track).",
+  "scripts": {
+    "dev": "vercel dev"
+  }
+}

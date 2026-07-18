@@ -9,9 +9,10 @@
  * answers { mode: "demo" } and the client runs its own self-contained
  * demo generator, so the product is fully functional with zero setup.
  *
- * Once credentials are set, it switches to live mode and fetches real
- * TxLINE data via GET /odds/snapshot/{fixtureId}, the exact endpoint
- * verified working during our own devnet activation run.
+ * Once credentials are set, it switches to live mode and reads one
+ * event off the GET /odds/stream endpoint per request, this is the
+ * exact endpoint we watched stream real World Cup odds data during
+ * our own devnet activation run.
  */
 
 const GUEST_JWT_URL = process.env.TXLINE_NETWORK === 'mainnet'
@@ -21,8 +22,6 @@ const GUEST_JWT_URL = process.env.TXLINE_NETWORK === 'mainnet'
 const API_BASE = process.env.TXLINE_NETWORK === 'mainnet'
   ? 'https://txline.txodds.com/api'
   : 'https://txline-dev.txodds.com/api';
-
-const FIXTURE_ID = 17588320;
 
 function hasLiveCredentials() {
   return Boolean(process.env.TXLINE_API_TOKEN);
@@ -34,32 +33,64 @@ async function getFreshJwt() {
   const data = await res.json();
   return data.token;
 }
+
 async function fetchLiveTick(afterMinute) {
   const jwt = await getFreshJwt();
   const apiToken = process.env.TXLINE_API_TOKEN;
 
-  const res = await fetch(`${API_BASE}/odds/snapshot/${FIXTURE_ID}`, {
-    headers: {
-      Authorization: `Bearer ${jwt}`,
-      'X-Api-Token': apiToken,
-    },
-  });
-  if (!res.ok) throw new Error('txline odds request failed: ' + res.status);
-  const raw = await res.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
 
-  const list = Array.isArray(raw) ? raw : raw.data || [];
-  if (!list.length) throw new Error('empty odds snapshot');
-  const latest = list[list.length - 1];
-  const price = Array.isArray(latest.Prices) ? latest.Prices[0] : null;
-  if (price === null || price === undefined) throw new Error('no price in snapshot');
+  try {
+    const res = await fetch(`${API_BASE}/odds/stream`, {
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        'X-Api-Token': apiToken,
+      },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error('txline stream request failed: ' + res.status);
 
-  return {
-    minute: afterMinute + 1,
-    statKey: latest.SuperOddsType || 'odds',
-    statLabel: 'Live Odds - ' + (latest.SuperOddsType || 'Market').replace(/_/g, ' '),
-    value: Math.round(price),
-    isPercent: false,
-  };
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        const jsonStr = line.slice(5).trim();
+        if (!jsonStr) continue;
+
+        let payload;
+        try {
+          payload = JSON.parse(jsonStr);
+        } catch (e) {
+          continue;
+        }
+
+        const price = Array.isArray(payload.Prices) ? payload.Prices[0] : null;
+        if (price === null || price === undefined) continue;
+
+        reader.cancel();
+        clearTimeout(timeout);
+        return {
+          minute: afterMinute + 1,
+          statKey: payload.SuperOddsType || 'odds',
+          statLabel: 'Live Odds - ' + (payload.SuperOddsType || 'Market').replace(/_/g, ' '),
+          value: Math.round(price),
+          isPercent: false,
+        };
+      }
+    }
+    throw new Error('stream ended before any usable event arrived');
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export default async function handler(req, res) {

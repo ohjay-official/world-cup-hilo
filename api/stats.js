@@ -29,17 +29,12 @@ const API_BASE = process.env.TXLINE_NETWORK === 'mainnet'
   : 'https://txline-dev.txodds.com/api';
 
 // Confirmed-working World Cup fixture used during activation testing.
-// Swap this for a rotating/current fixture id once you have a fixtures
-// list endpoint wired up — this is deliberately a known-good constant
-// for now so live mode never breaks on a bad id.
 const FIXTURE_ID = 17588320;
 
 function hasLiveCredentials() {
   return Boolean(process.env.TXLINE_API_TOKEN);
 }
 
-// Always mint a fresh guest JWT — it's a short-lived session token by
-// design, so we never rely on one going stale in an env var.
 async function getFreshJwt() {
   const res = await fetch(GUEST_JWT_URL, { method: 'POST' });
   if (!res.ok) throw new Error('guest jwt request failed: ' + res.status);
@@ -60,8 +55,6 @@ async function fetchLiveTick(afterMinute) {
   if (!res.ok) throw new Error('txline odds request failed: ' + res.status);
   const raw = await res.json();
 
-  // Response is an array of odds snapshots. Take the most recent one
-  // and turn its first price into this round's tick value.
   const list = Array.isArray(raw) ? raw : raw.data || [];
   if (!list.length) throw new Error('empty odds snapshot');
   const latest = list[list.length - 1];
@@ -87,8 +80,6 @@ export default async function handler(req, res) {
   }
 
   if (!live) {
-    // Client already has its own demo generator; this keeps the contract
-    // consistent for any caller that doesn't run the client JS.
     return res.status(200).json({ mode: 'demo' });
   }
 
@@ -97,9 +88,4 @@ export default async function handler(req, res) {
     const tick = await fetchLiveTick(after);
     return res.status(200).json({ mode: 'live', tick });
   } catch (err) {
-    // Never break the game for players: fall back to demo mode and log
-    // the real reason server-side for you to debug.
-    console.error('TxLINE live fetch failed, falling back to demo:', err.message);
-    return res.status(200).json({ mode: 'demo' });
-  }
-}
+    console.error('TxLINE live fetch

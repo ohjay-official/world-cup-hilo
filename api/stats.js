@@ -24,7 +24,7 @@ const API_BASE = process.env.TXLINE_NETWORK === 'mainnet'
   : 'https://txline-dev.txodds.com/api';
 
 function hasLiveCredentials() {
-  return Boolean(process.env.TXLINE_API_TOKEN);
+  return Boolean(process.env.TXLINE_API_TOKEN && process.env.TXLINE_JWT);
 }
 
 async function getFreshJwt() {
@@ -35,7 +35,10 @@ async function getFreshJwt() {
 }
 
 async function fetchLiveTick(afterMinute) {
-  const jwt = await getFreshJwt();
+  // Reuse the JWT from the session that actually completed activation.
+  // A freshly-minted guest JWT has no entitlement of its own, only the
+  // specific session tied to the on-chain subscribe+activate flow does.
+  const jwt = process.env.TXLINE_JWT;
   const apiToken = process.env.TXLINE_API_TOKEN;
 
   const controller = new AbortController();

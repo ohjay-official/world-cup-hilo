@@ -5,20 +5,19 @@
  * (JWT / API token) live here as Vercel environment variables and are
  * never sent to the browser.
  *
- * Until TXLINE_JWT and TXLINE_API_TOKEN are set (see README → "Go live"),
- * this always answers { mode: "demo" } and the client runs its own
- * self-contained demo generator — so the product is fully functional
- * with zero setup, which is what a judge opening the deployed link will
- * see today.
+ * Until TXLINE_API_TOKEN is set (see README → "Go live"), this always
+ * answers { mode: "demo" } and the client runs its own self-contained
+ * demo generator — so the product is fully functional with zero setup.
  *
  * Once credentials are set, it switches to live mode and fetches real
- * match data from TxLINE, normalizing it into the same { tick } shape
- * the client already renders. The exact data endpoint path/schema
- * (fixtures, scores, stat feed) should be taken from the authenticated
- * API Reference at https://txline-docs.txodds.com/api-reference once
- * you've activated a token — swap the TODO block below for that call.
- * The auth bootstrap (guest JWT) below matches the documented Quickstart
- * exactly: https://txline.txodds.com/documentation/quickstart
+ * TxLINE data via GET /odds/snapshot/{fixtureId} — the exact endpoint
+ * verified working during our own devnet activation run.
+ *
+ * Auth model: the guest JWT is short-lived on purpose (it's a session
+ * token), so this always mints a fresh one per request rather than
+ * trusting a stored TXLINE_JWT that may have expired. TXLINE_API_TOKEN
+ * is the long-lived credential from the one-time on-chain activation
+ * and is reused from the environment.
  */
 
 const GUEST_JWT_URL = process.env.TXLINE_NETWORK === 'mainnet'
@@ -29,13 +28,18 @@ const API_BASE = process.env.TXLINE_NETWORK === 'mainnet'
   ? 'https://txline.txodds.com/api'
   : 'https://txline-dev.txodds.com/api';
 
+// Confirmed-working World Cup fixture used during activation testing.
+// Swap this for a rotating/current fixture id once you have a fixtures
+// list endpoint wired up — this is deliberately a known-good constant
+// for now so live mode never breaks on a bad id.
+const FIXTURE_ID = 17588320;
+
 function hasLiveCredentials() {
-  return Boolean(process.env.TXLINE_JWT && process.env.TXLINE_API_TOKEN);
+  return Boolean(process.env.TXLINE_API_TOKEN);
 }
 
-// Renews a short-lived guest JWT if needed. The activated API token
-// (TXLINE_API_TOKEN) is the long-lived credential from the one-time
-// on-chain activation described in the README.
+// Always mint a fresh guest JWT — it's a short-lived session token by
+// design, so we never rely on one going stale in an env var.
 async function getFreshJwt() {
   const res = await fetch(GUEST_JWT_URL, { method: 'POST' });
   if (!res.ok) throw new Error('guest jwt request failed: ' + res.status);
@@ -44,29 +48,32 @@ async function getFreshJwt() {
 }
 
 async function fetchLiveTick(afterMinute) {
-  const jwt = process.env.TXLINE_JWT || (await getFreshJwt());
+  const jwt = await getFreshJwt();
   const apiToken = process.env.TXLINE_API_TOKEN;
 
-  // --- TODO: replace with the real stats/scores endpoint from the
-  // authenticated API Reference (fixture id, stat feed, etc). Left
-  // intentionally explicit rather than guessed, so a bad guess never
-  // silently corrupts what judges see.
-  const res = await fetch(`${API_BASE}/worldcup/live-stats?after=${afterMinute}`, {
+  const res = await fetch(`${API_BASE}/odds/snapshot/${FIXTURE_ID}`, {
     headers: {
       Authorization: `Bearer ${jwt}`,
       'X-Api-Token': apiToken,
     },
   });
-  if (!res.ok) throw new Error('txline stats request failed: ' + res.status);
+  if (!res.ok) throw new Error('txline odds request failed: ' + res.status);
   const raw = await res.json();
 
-  // Normalize whatever TxLINE returns into the shape the frontend expects.
+  // Response is an array of odds snapshots. Take the most recent one
+  // and turn its first price into this round's tick value.
+  const list = Array.isArray(raw) ? raw : raw.data || [];
+  if (!list.length) throw new Error('empty odds snapshot');
+  const latest = list[list.length - 1];
+  const price = Array.isArray(latest.Prices) ? latest.Prices[0] : null;
+  if (price === null || price === undefined) throw new Error('no price in snapshot');
+
   return {
-    minute: raw.minute,
-    statKey: raw.statKey || raw.stat,
-    statLabel: raw.statLabel || raw.label,
-    value: raw.value,
-    isPercent: Boolean(raw.isPercent),
+    minute: afterMinute + 1,
+    statKey: latest.SuperOddsType || 'odds',
+    statLabel: 'Live Odds — ' + (latest.SuperOddsType || 'Market').replace(/_/g, ' '),
+    value: Math.round(price),
+    isPercent: false,
   };
 }
 

@@ -51,10 +51,14 @@ async function getFixtureId(jwt, apiToken) {
       headers: {
         Authorization: `Bearer ${jwt}`,
         'X-Api-Token': apiToken,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       },
     }
   );
-  if (!res.ok) throw new Error('fixtures snapshot failed: ' + res.status);
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => '(no body)');
+    throw new Error(`fixtures snapshot failed: ${res.status} | body: ${bodyText.slice(0, 300)}`);
+  }
   const fixtures = await res.json();
   if (!Array.isArray(fixtures) || !fixtures.length) {
     throw new Error('no World Cup fixtures returned');
@@ -76,10 +80,14 @@ async function fetchLiveTick(afterMinute) {
       headers: {
         Authorization: `Bearer ${jwt}`,
         'X-Api-Token': apiToken,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       },
     }
   );
-  if (!res.ok) throw new Error('odds snapshot failed: ' + res.status);
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => '(no body)');
+    throw new Error(`odds snapshot failed: ${res.status} | body: ${bodyText.slice(0, 300)}`);
+  }
   const raw = await res.json();
 
   const list = Array.isArray(raw) ? raw : raw.data || [];

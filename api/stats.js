@@ -115,6 +115,18 @@ export default async function handler(req, res) {
     return res.status(200).json({ mode: live ? 'live' : 'demo' });
   }
 
+  if (req.query.envcheck) {
+    const tok = process.env.TXLINE_API_TOKEN || '';
+    const jwtVal = process.env.TXLINE_JWT || '';
+    return res.status(200).json({
+      tokenPresent: Boolean(tok),
+      tokenLength: tok.length,
+      tokenStartsWith: tok.slice(0, 8),
+      jwtPresent: Boolean(jwtVal),
+      jwtLength: jwtVal.length,
+    });
+  }
+
   if (!live) {
     return res.status(200).json({ mode: 'demo' });
   }
